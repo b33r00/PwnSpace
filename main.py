@@ -28,6 +28,7 @@ class PwnSpaceBot(commands.Bot):
             "cogs.challenge",
             "cogs.claim",
             "cogs.news",
+            "cogs.jobs",
         ]
 
         for extension in extensions:

@@ -1,10 +1,13 @@
 import json
+import re
 import time
 from email.utils import parsedate_to_datetime
+from html import unescape
 from pathlib import Path
 from typing import Optional
 
 import feedparser
+from bs4 import BeautifulSoup
 
 
 class NewsService:
@@ -102,6 +105,64 @@ class NewsService:
 
         return 0.0
 
+    def _clean_html(self, text: str) -> str:
+        if not text:
+            return ""
+
+        text = unescape(text)
+        soup = BeautifulSoup(text, "html.parser")
+
+        for tag in soup(["script", "style"]):
+            tag.decompose()
+
+        cleaned = soup.get_text(" ", strip=True)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned
+
+    def _normalize_summary(self, source_name: str, summary: str) -> str:
+        summary = self._clean_html(summary)
+
+        if not summary:
+            return "No summary available."
+
+        if source_name == "CISA Cybersecurity Advisories":
+            summary = re.sub(r"^View\s+CSAF\s*", "", summary, flags=re.IGNORECASE)
+            summary = re.sub(r"^Summary\s*", "", summary, flags=re.IGNORECASE)
+
+            for marker in (
+                "Risk evaluation",
+                "Technical details",
+                "Mitigations",
+                "CISA recommends",
+                "Acknowledgements",
+                "References",
+            ):
+                idx = summary.lower().find(marker.lower())
+                if idx != -1:
+                    summary = summary[:idx].strip()
+                    break
+
+        summary = re.sub(r"\s+", " ", summary).strip()
+
+        if len(summary) > 900:
+            summary = summary[:897].rstrip() + "..."
+
+        return summary or "No summary available."
+
+    def _normalize_title(self, title: str) -> str:
+        title = self._clean_html(title)
+        if not title:
+            return "Untitled"
+
+        title = re.sub(r"\s+", " ", title).strip()
+        return title[:250]
+
+    def _normalize_link(self, link: Optional[str]) -> Optional[str]:
+        if not link:
+            return None
+        link = str(link).strip()
+        return link or None
+
     def fetch_latest(
         self,
         limit: int = 10,
@@ -128,19 +189,35 @@ class NewsService:
             print(f"[NEWS_SERVICE] {source['name']} -> {len(source_entries)} entries")
 
             for entry in source_entries[:per_source_limit]:
+                raw_title = getattr(entry, "title", "Untitled")
+                raw_summary = getattr(entry, "summary", "")
+                raw_link = getattr(entry, "link", None)
+                raw_published = getattr(entry, "published", "Unknown")
+
                 item = {
                     "source": source["name"],
                     "category": source["category"],
-                    "title": getattr(entry, "title", "Untitled"),
-                    "link": getattr(entry, "link", None),
-                    "published": getattr(entry, "published", "Unknown"),
-                    "summary": getattr(entry, "summary", ""),
+                    "title": self._normalize_title(str(raw_title)),
+                    "link": self._normalize_link(raw_link),
+                    "published": str(raw_published) if raw_published else "Unknown",
+                    "summary": self._normalize_summary(source["name"], str(raw_summary)),
                     "_ts": self._entry_timestamp(entry),
                 }
                 items.append(item)
 
-        items.sort(key=lambda x: x.get("_ts", 0.0), reverse=True)
-        return items[:limit]
+        unique = {}
+        for item in items:
+            item_id = self._entry_id(item)
+            if not item_id:
+                continue
+
+            existing = unique.get(item_id)
+            if existing is None or item.get("_ts", 0.0) > existing.get("_ts", 0.0):
+                unique[item_id] = item
+
+        deduped = list(unique.values())
+        deduped.sort(key=lambda x: x.get("_ts", 0.0), reverse=True)
+        return deduped[:limit]
 
     def fetch_new_items(
         self,

@@ -1,0 +1,32 @@
+[
+  {
+    "name": "Remote OK - Security",
+    "type": "rss",
+    "category": "jobs",
+    "url": "https://remoteok.com/remote-security-jobs.rss"
+  },
+  {
+    "name": "Remote OK - DevSecOps",
+    "type": "rss",
+    "category": "jobs",
+    "url": "https://remoteok.com/remote-devsecops-jobs.rss"
+  },
+  {
+    "name": "We Work Remotely - Programming",
+    "type": "rss",
+    "category": "jobs",
+    "url": "https://weworkremotely.com/categories/remote-programming-jobs.rss"
+  },
+  {
+    "name": "Hacker News Jobs",
+    "type": "rss",
+    "category": "jobs",
+    "url": "https://hnrss.org/jobs"
+  },
+  {
+    "name": "Infosec Jobs",
+    "type": "scrape",
+    "category": "jobs",
+    "url": "https://infosec-jobs.com/"
+  }
+]

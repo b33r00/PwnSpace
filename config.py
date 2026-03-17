@@ -71,3 +71,12 @@ ALLOW_ONLY_VERIFIED_FOR_CLAIM = _get_bool("ALLOW_ONLY_VERIFIED_FOR_CLAIM", True)
 NEWS_CHANNEL_ID = _get_int("NEWS_CHANNEL_ID")
 NEWS_POLL_MINUTES = _get_int("NEWS_POLL_MINUTES", 15)
 NEWS_STATE_PATH = os.getenv("NEWS_STATE_PATH", "data/news_seen.json")
+
+# ========================
+# JOBS SYSTEM
+# ========================
+
+JOBS_CHANNEL_ID = _get_int("JOBS_CHANNEL_ID")
+JOBS_POLL_MINUTES = _get_int("JOBS_POLL_MINUTES", 30)
+JOBS_STATE_PATH = os.getenv("JOBS_STATE_PATH", "data/jobs_seen.json")
+JOBS_SOURCES_PATH = os.getenv("JOBS_SOURCES_PATH", "data/job_sources.json")
