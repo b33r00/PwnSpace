@@ -1,0 +1,141 @@
+import json
+from pathlib import Path
+from typing import Optional
+
+import feedparser
+
+
+class NewsService:
+    def __init__(
+        self,
+        sources_path: str = "data/news_sources.json",
+        state_path: str = "data/news_seen.json",
+    ):
+        self.sources_path = Path(sources_path)
+        self.state_path = Path(state_path)
+
+    def load_sources(self) -> list[dict]:
+        if not self.sources_path.exists():
+            return []
+
+        with self.sources_path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if not isinstance(data, list):
+            return []
+
+        valid_sources = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+
+            name = item.get("name")
+            url = item.get("url")
+            category = item.get("category", "general")
+
+            if not name or not url:
+                continue
+
+            valid_sources.append(
+                {
+                    "name": str(name),
+                    "url": str(url),
+                    "category": str(category),
+                }
+            )
+
+        return valid_sources
+
+    def load_seen(self) -> set[str]:
+        if not self.state_path.exists():
+            return set()
+
+        try:
+            with self.state_path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            if not isinstance(data, list):
+                return set()
+
+            return {str(x) for x in data if x}
+        except Exception:
+            return set()
+
+    def save_seen(self, seen: set[str]) -> None:
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+
+        trimmed = list(sorted(seen))[-5000:]
+        with self.state_path.open("w", encoding="utf-8") as f:
+            json.dump(trimmed, f, ensure_ascii=False, indent=2)
+
+    def _entry_id(self, entry: dict) -> Optional[str]:
+        link = entry.get("link")
+        title = entry.get("title")
+
+        if link:
+            return str(link).strip()
+
+        if title:
+            return str(title).strip()
+
+        return None
+
+    def fetch_latest(self, category: Optional[str] = None, per_source_limit: int = 10) -> list[dict]:
+        sources = self.load_sources()
+        if category:
+            sources = [s for s in sources if s["category"].lower() == category.lower()]
+
+        entries = []
+
+        for source in sources:
+            try:
+                feed = feedparser.parse(source["url"])
+            except Exception:
+                continue
+
+            for entry in feed.entries[:per_source_limit]:
+                entries.append(
+                    {
+                        "source": source["name"],
+                        "category": source["category"],
+                        "title": getattr(entry, "title", "Untitled"),
+                        "link": getattr(entry, "link", None),
+                        "published": getattr(entry, "published", "Unknown"),
+                        "summary": getattr(entry, "summary", ""),
+                    }
+                )
+
+        entries.sort(key=lambda x: x.get("published", "") or "", reverse=True)
+        return entries
+
+    def fetch_new_items(self, category: Optional[str] = None, per_source_limit: int = 10) -> list[dict]:
+        seen = self.load_seen()
+        latest = self.fetch_latest(category=category, per_source_limit=per_source_limit)
+
+        new_items = []
+        for item in latest:
+            item_id = self._entry_id(item)
+            if not item_id:
+                continue
+
+            if item_id in seen:
+                continue
+
+            new_items.append(item)
+            seen.add(item_id)
+
+        if new_items:
+            self.save_seen(seen)
+
+        return new_items
+
+    def mark_all_current_as_seen(self) -> None:
+        seen = self.load_seen()
+        latest = self.fetch_latest()
+
+        for item in latest:
+            item_id = self._entry_id(item)
+            if item_id:
+                seen.add(item_id)
+
+        self.save_seen(seen)

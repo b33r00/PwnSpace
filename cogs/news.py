@@ -1,11 +1,11 @@
 import discord
-from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
+import config
 from services.news_service import NewsService
 
 
-def trim_text(text: str, max_len: int = 300) -> str:
+def trim_text(text: str, max_len: int = 350) -> str:
     text = (text or "").strip()
     if not text:
         return "No summary available."
@@ -14,111 +14,120 @@ def trim_text(text: str, max_len: int = 300) -> str:
     return text[: max_len - 3] + "..."
 
 
-class NewsCog(commands.GroupCog, group_name="news", group_description="Cyber news commands"):
-    def __init__(self, bot: commands.Bot):
+class NewsCog(commands.Cog):
+    def __init__(self, bot):
         self.bot = bot
-        self.news_service = NewsService()
-        super().__init__()
+        self.service = NewsService(
+            sources_path="data/news_sources.json",
+            state_path=config.NEWS_STATE_PATH,
+        )
+        self.started = False
 
-    @app_commands.command(name="sources", description="List configured news sources")
-    async def sources(self, interaction: discord.Interaction):
-        sources = self.news_service.list_sources()
-
-        if not sources:
-            await interaction.response.send_message("No news sources are configured.", ephemeral=True)
+    @commands.Cog.listener()
+    async def on_ready(self):
+        if self.started:
             return
 
-        embed = discord.Embed(title="Configured news sources", color=0x000000)
+        self.started = True
+        print("[NEWS] ready")
 
-        for source in sources[:25]:
-            embed.add_field(
-                name=source["name"],
-                value=f"Category: {source['category']}\nFeed: {source['url']}",
-                inline=False
-            )
+        await self.send_startup_news()
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        if not self.loop.is_running():
+            self.loop.start()
+            print("[NEWS] loop started")
 
-    @app_commands.command(name="latest", description="Show latest news entries")
-    @app_commands.describe(
-        limit="How many items to return (max 10)",
-        category="Optional category filter"
-    )
-    async def latest(
-        self,
-        interaction: discord.Interaction,
-        limit: app_commands.Range[int, 1, 10] = 5,
-        category: str | None = None
-    ):
-        await interaction.response.defer(ephemeral=True)
+    async def send_startup_news(self):
+        if not config.NEWS_CHANNEL_ID:
+            print("[NEWS] NEWS_CHANNEL_ID not set")
+            return
 
-        items = self.news_service.fetch_latest(limit=limit, category=category)
+        channel = self.bot.get_channel(config.NEWS_CHANNEL_ID)
+        if not channel:
+            try:
+                channel = await self.bot.fetch_channel(config.NEWS_CHANNEL_ID)
+            except Exception as e:
+                print(f"[NEWS] failed to fetch channel: {e!r}")
+                return
+
+        items = self.service.fetch_latest(limit=5, per_source_limit=3)
+        print(f"[NEWS] startup fetched {len(items)} items")
 
         if not items:
-            await interaction.followup.send("No news items found.", ephemeral=True)
             return
 
-        embed = discord.Embed(title="Latest news", color=0x000000)
+        seen = self.service.load_seen()
+        sent = 0
 
-        for item in items:
-            summary = trim_text(item.get("summary", ""), 220)
-            link = item.get("link") or "No link"
-            published = item.get("published", "Unknown")
+        for item in reversed(items):
+            item_id = self.service._entry_id(item)
+            if not item_id or item_id in seen:
+                continue
 
-            embed.add_field(
-                name=item["title"],
-                value=(
-                    f"Source: {item['source']}\n"
-                    f"Published: {published}\n"
-                    f"Link: {link}\n"
-                    f"Summary: {summary}"
-                ),
-                inline=False
+            embed = discord.Embed(
+                title=item["title"],
+                url=item.get("link") or None,
+                description=trim_text(item.get("summary", ""), 350),
+                color=0x000000,
             )
+            embed.add_field(name="Source", value=item.get("source", "Unknown"), inline=True)
+            embed.add_field(name="Published", value=item.get("published", "Unknown"), inline=False)
 
-        await interaction.followup.send(embed=embed, ephemeral=True)
+            try:
+                await channel.send(content=item.get("link") or None, embed=embed)
+                seen.add(item_id)
+                sent += 1
+            except Exception as e:
+                print(f"[NEWS] failed to send startup item: {e!r}")
 
-    @app_commands.command(name="search", description="Search news entries by keyword")
-    @app_commands.describe(
-        query="Keyword or phrase to search for",
-        limit="How many items to return (max 10)",
-        category="Optional category filter"
-    )
-    async def search(
-        self,
-        interaction: discord.Interaction,
-        query: str,
-        limit: app_commands.Range[int, 1, 10] = 5,
-        category: str | None = None
-    ):
-        await interaction.response.defer(ephemeral=True)
+        self.service.save_seen(seen)
+        print(f"[NEWS] startup sent {sent} items")
 
-        items = self.news_service.search(query=query, limit=limit, category=category)
+    @tasks.loop(minutes=1)
+    async def loop(self):
+        print("[NEWS] tick")
 
-        if not items:
-            await interaction.followup.send(f"No results found for `{query}`.", ephemeral=True)
+        if not config.NEWS_CHANNEL_ID:
+            print("[NEWS] NEWS_CHANNEL_ID missing")
             return
 
-        embed = discord.Embed(title=f"News search: {query}", color=0x000000)
+        interval = max(1, int(config.NEWS_POLL_MINUTES))
+        current_minute = discord.utils.utcnow().minute
 
-        for item in items:
-            summary = trim_text(item.get("summary", ""), 220)
-            link = item.get("link") or "No link"
-            published = item.get("published", "Unknown")
+        if current_minute % interval != 0:
+            return
 
-            embed.add_field(
-                name=item["title"],
-                value=(
-                    f"Source: {item['source']}\n"
-                    f"Published: {published}\n"
-                    f"Link: {link}\n"
-                    f"Summary: {summary}"
-                ),
-                inline=False
+        channel = self.bot.get_channel(config.NEWS_CHANNEL_ID)
+        if not channel:
+            try:
+                channel = await self.bot.fetch_channel(config.NEWS_CHANNEL_ID)
+            except Exception as e:
+                print(f"[NEWS] failed to fetch channel: {e!r}")
+                return
+
+        new_items = self.service.fetch_new_items(limit=5, per_source_limit=3)
+        print(f"[NEWS] new items: {len(new_items)}")
+
+        for item in reversed(new_items):
+            embed = discord.Embed(
+                title=item["title"],
+                url=item.get("link") or None,
+                description=trim_text(item.get("summary", ""), 350),
+                color=0x000000,
             )
+            embed.add_field(name="Source", value=item.get("source", "Unknown"), inline=True)
+            embed.add_field(name="Published", value=item.get("published", "Unknown"), inline=False)
 
-        await interaction.followup.send(embed=embed, ephemeral=True)
+            try:
+                await channel.send(content=item.get("link") or None, embed=embed)
+                print(f"[NEWS] sent: {item['source']} -> {item['title']}")
+            except Exception as e:
+                print(f"[NEWS] failed to send item: {e!r}")
+
+    @loop.before_loop
+    async def before(self):
+        await self.bot.wait_until_ready()
 
 
-async def setup(bot: commands.Bot):
+async def setup(bot):
     await bot.add_cog(NewsCog(bot))

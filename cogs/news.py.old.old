@@ -1,0 +1,107 @@
+import discord
+from discord.ext import commands, tasks
+
+import config
+from services.news_service import NewsService
+
+
+def trim_text(text: str, max_len: int = 400) -> str:
+    text = (text or "").strip()
+    if not text:
+        return "No summary available."
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 3] + "..."
+
+
+class NewsCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.news_service = NewsService(state_path=config.NEWS_STATE_PATH)
+        self.started = False
+
+    async def cog_load(self):
+        print("[NEWS] Cog loaded")
+
+    async def cog_unload(self):
+        self.news_loop.cancel()
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        if self.started:
+            return
+
+        self.started = True
+
+        if not config.NEWS_CHANNEL_ID:
+            print("[NEWS] NEWS_CHANNEL_ID is not set, news loop will not start")
+            return
+
+        if not self.news_loop.is_running():
+            self.news_loop.start()
+            print("[NEWS] Background news loop started")
+
+    @tasks.loop(minutes=1)
+    async def news_loop(self):
+        if not config.NEWS_CHANNEL_ID:
+            return
+
+        interval = max(1, int(config.NEWS_POLL_MINUTES))
+        current_minute = discord.utils.utcnow().minute
+
+        if current_minute % interval != 0:
+            return
+
+        channel = self.bot.get_channel(int(config.NEWS_CHANNEL_ID))
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(int(config.NEWS_CHANNEL_ID))
+            except Exception as e:
+                print(f"[NEWS] Failed to fetch channel: {e!r}")
+                return
+
+        try:
+            new_items = self.news_service.fetch_new_items()
+        except Exception as e:
+            print(f"[NEWS] Fetch failed: {e!r}")
+            return
+
+        if not new_items:
+            print("[NEWS] No new items")
+            return
+
+        new_items = list(reversed(new_items))
+
+        for item in new_items:
+            embed = discord.Embed(
+                title=item.get("title", "Untitled"),
+                url=item.get("link") or discord.Embed.Empty,
+                description=trim_text(item.get("summary", ""), 400),
+                color=0x000000,
+            )
+            embed.add_field(name="Source", value=item.get("source", "Unknown"), inline=True)
+            embed.add_field(name="Category", value=item.get("category", "general"), inline=True)
+            embed.add_field(name="Published", value=item.get("published", "Unknown"), inline=False)
+
+            link = item.get("link")
+            content = link if link else None
+
+            try:
+                await channel.send(content=content, embed=embed)
+                print(f"[NEWS] Posted: {item.get('title', 'Untitled')}")
+            except Exception as e:
+                print(f"[NEWS] Failed to post item: {e!r}")
+
+    @news_loop.before_loop
+    async def before_news_loop(self):
+        await self.bot.wait_until_ready()
+
+        try:
+            self.news_service.mark_all_current_as_seen()
+            print("[NEWS] Initial feed snapshot saved; old items will not be reposted")
+        except Exception as e:
+            print(f"[NEWS] Failed to initialize seen-state: {e!r}")
+
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(NewsCog(bot))

@@ -31,37 +31,40 @@ class PwnSpaceBot(commands.Bot):
         ]
 
         for extension in extensions:
-       	 print(f"[LOADING] {extension}")
-   	 await self.load_extension(extension)
-         print(f"[OK] {extension}")
+            print(f"[LOADING] {extension}")
+            await self.load_extension(extension)
+            print(f"[OK] {extension}")
 
-    print("[TREE COMMANDS BEFORE SYNC]")
-    for cmd in self.tree.get_commands():
-        print(f" - {cmd.name} ({type(cmd).__name__})")
-
-    if config.GUILD_ID:
-        guild_obj = discord.Object(id=int(config.GUILD_ID))
-
-        self.tree.clear_commands(guild=guild_obj)
-        self.tree.copy_global_to(guild=guild_obj)
-
-        synced = await self.tree.sync(guild=guild_obj)
-        print(f"Synced {len(synced)} guild commands to {config.GUILD_ID}")
-        print("[SYNCED COMMANDS]")
-        for cmd in synced:
+        print("[TREE COMMANDS BEFORE SYNC]")
+        for cmd in self.tree.get_commands():
             print(f" - {cmd.name} ({type(cmd).__name__})")
-    else:
-        synced = await self.tree.sync()
-        print(f"Globally synced {len(synced)} commands")
-        print("[SYNCED COMMANDS]")
-        for cmd in synced:
-            print(f" - {cmd.name} ({type(cmd).__name__})")
-            
+
+        if config.GUILD_ID:
+            guild_obj = discord.Object(id=int(config.GUILD_ID))
+
+            self.tree.clear_commands(guild=guild_obj)
+            self.tree.copy_global_to(guild=guild_obj)
+
+            synced = await self.tree.sync(guild=guild_obj)
+            print(f"Synced {len(synced)} guild commands to {config.GUILD_ID}")
+            print("[SYNCED COMMANDS]")
+            for cmd in synced:
+                print(f" - {cmd.name} ({type(cmd).__name__})")
+        else:
+            synced = await self.tree.sync()
+            print(f"Globally synced {len(synced)} commands")
+            print("[SYNCED COMMANDS]")
+            for cmd in synced:
+                print(f" - {cmd.name} ({type(cmd).__name__})")
 
     async def on_ready(self):
         print(f"Logged in as: {self.user} (ID: {self.user.id})")
 
-    async def on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+    async def on_app_command_error(
+        self,
+        interaction: discord.Interaction,
+        error: app_commands.AppCommandError,
+    ):
         message = "An unexpected error occurred."
 
         if isinstance(error, app_commands.CheckFailure):

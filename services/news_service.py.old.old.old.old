@@ -1,0 +1,53 @@
+import json
+from pathlib import Path
+import feedparser
+
+
+class NewsService:
+    def __init__(self, state_path="data/news_seen.json"):
+        self.state_path = Path(state_path)
+
+    def load_seen(self):
+        if not self.state_path.exists():
+            return set()
+        try:
+            return set(json.loads(self.state_path.read_text()))
+        except:
+            return set()
+
+    def save_seen(self, seen):
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        self.state_path.write_text(json.dumps(list(seen)))
+
+    def fetch_latest(self):
+        feeds = [
+            "https://feeds.feedburner.com/TheHackersNews",
+            "https://www.bleepingcomputer.com/feed/",
+        ]
+
+        items = []
+
+        for url in feeds:
+            feed = feedparser.parse(url)
+            for entry in feed.entries[:5]:
+                items.append({
+                    "title": getattr(entry, "title", "Untitled"),
+                    "link": getattr(entry, "link", None),
+                    "summary": getattr(entry, "summary", ""),
+                    "source": url
+                })
+
+        return items
+
+    def fetch_new_items(self):
+        seen = self.load_seen()
+        latest = self.fetch_latest()
+
+        new = []
+        for item in latest:
+            if item["link"] and item["link"] not in seen:
+                new.append(item)
+                seen.add(item["link"])
+
+        self.save_seen(seen)
+        return new

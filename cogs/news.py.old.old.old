@@ -1,0 +1,73 @@
+import discord
+from discord.ext import commands, tasks
+import config
+from services.news_service import NewsService
+
+
+class NewsCog(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+        self.service = NewsService(config.NEWS_STATE_PATH)
+        self.started = False
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        if self.started:
+            return
+
+        self.started = True
+        print("[NEWS] ready")
+
+        # induláskor küldjünk pár hírt
+        await self.send_startup_news()
+
+        self.loop.start()
+
+    async def send_startup_news(self):
+        channel = self.bot.get_channel(config.NEWS_CHANNEL_ID)
+        if not channel:
+            print("[NEWS] channel not found")
+            return
+
+        items = self.service.fetch_latest()[:3]
+
+        for item in items:
+            embed = discord.Embed(
+                title=item["title"],
+                url=item["link"],
+                description=item["summary"][:300],
+                color=0x000000
+            )
+            await channel.send(embed=embed)
+
+        print(f"[NEWS] startup sent {len(items)} items")
+
+    @tasks.loop(minutes=1)
+    async def loop(self):
+        print("[NEWS] tick")
+
+        channel = self.bot.get_channel(config.NEWS_CHANNEL_ID)
+        if not channel:
+            print("[NEWS] channel missing")
+            return
+
+        new_items = self.service.fetch_new_items()
+
+        print(f"[NEWS] new items: {len(new_items)}")
+
+        for item in new_items:
+            embed = discord.Embed(
+                title=item["title"],
+                url=item["link"],
+                description=item["summary"][:300],
+                color=0x000000
+            )
+            await channel.send(embed=embed)
+
+    @loop.before_loop
+    async def before(self):
+        await self.bot.wait_until_ready()
+
+
+async def setup(bot):
+    await bot.add_cog(NewsCog(bot))

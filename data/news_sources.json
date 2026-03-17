@@ -23,5 +23,20 @@
     "name": "SecurityWeek",
     "category": "cyber",
     "url": "https://www.securityweek.com/feed/"
+  },
+  {
+    "name": "Cisco Talos",
+    "category": "cyber",
+    "url": "https://blog.talosintelligence.com/feed/"
+  },
+  {
+    "name": "CISA Cybersecurity Advisories",
+    "category": "cyber",
+    "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml"
+  },
+  {
+    "name": "Microsoft Security Update Guide",
+    "category": "cyber",
+    "url": "https://msrc.microsoft.com/update-guide/rss"
   }
 ]
