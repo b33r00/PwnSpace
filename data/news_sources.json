@@ -1,0 +1,27 @@
+[
+  {
+    "name": "The Hacker News",
+    "category": "cyber",
+    "url": "https://feeds.feedburner.com/TheHackersNews"
+  },
+  {
+    "name": "BleepingComputer",
+    "category": "cyber",
+    "url": "https://www.bleepingcomputer.com/feed/"
+  },
+  {
+    "name": "Krebs on Security",
+    "category": "cyber",
+    "url": "https://krebsonsecurity.com/feed/"
+  },
+  {
+    "name": "Dark Reading",
+    "category": "cyber",
+    "url": "https://www.darkreading.com/rss.xml"
+  },
+  {
+    "name": "SecurityWeek",
+    "category": "cyber",
+    "url": "https://www.securityweek.com/feed/"
+  }
+]
